@@ -1,0 +1,240 @@
+import pandas as pd  # Key library for managing and analyzing structured data in DataFrames
+import numpy as np # Numerical computing library for array operations and math functions  
+import csv  # Library for working with CSV files
+import re # Regular expressions for string pattern matching and text processing  
+import matplotlib.pyplot as plt # Plotting library for creating visualizations (charts, graphs)  
+
+# %%
+# Define the full path of files that contains articles, experience and sales data
+path_1 = r'E:\Computador\JOYCE\Busqueda contrato joyce\Addeco- Adidas\Digital_Analytics_Test\articles.txt'
+path_2 = r'E:\Computador\JOYCE\Busqueda contrato joyce\Addeco- Adidas\Digital_Analytics_Test\experience.csv'
+path_3 = r'E:\Computador\JOYCE\Busqueda contrato joyce\Addeco- Adidas\Digital_Analytics_Test\sales.csv'
+
+# Read the .txt articles file using pandas:
+# - sep='\t' indicates to use tabs as the delimiter
+df_articles = pd.read_csv(path_1, sep='\t', encoding='utf-8-sig')
+
+# Read the experience and sales csv files using pandas:
+# - sep=';' indicates to use semicolon as the delimiter
+df_experience = pd.read_csv(path_2, sep=';', encoding='utf-8-sig')
+df_sales = pd.read_csv(path_3, sep=';', encoding='utf-8-sig')
+
+
+# %%
+#In the experience dataframe, the visits and Cart Additions data initially had issues due to incorrect use of thousand separators.
+#This will be fixe next:
+def clean(valor):
+    valor = str(valor)
+    # Case 1:period and 3 digits (thousands separator) → remove period
+    if re.match(r'^\d+\.\d{3}$', valor):
+        return float(valor.replace('.', ''))
+    # # Case 2: period and 1 or 2 digits (real decimal) → leave as is
+    elif re.match(r'^\d+\.\d{1,2}$', valor):
+        return float(valor)
+    # Case 3: integer value without period
+    elif re.match(r'^\d+$', valor):
+        return float(valor)
+    else:
+        return None # in case there are strange values
+
+# Apply the function to the new 'Visits_clean' and 'Cart_Additions_clean' columns
+df_experience['Visits_clean'] = df_experience['Visits'].apply(clean)
+df_experience['Cart_Additions_clean'] = df_experience['Cart Additions'].apply(clean)
+
+# %%
+# But some decimal values were discovered, Is important to know what values are because a visit is a discrete event 
+#(someone accessing an app or website), it must be an integer.
+#This line is for validation: 
+# non_integer_visits = df_experience[df_experience['Visits_clean'] % 1 != 0] # validate 
+# These decimal values represents 0.12% of the total experiences, likely these values stem from data conversion errors, 
+# improper rounding, or incorrect data types in the source system. For the purpose of this exercise, they were retained, 
+# but in a real-world scenario, it would be necessary to investigate the event tracking process to determine whether the issue
+# lies in data capture or reflects a valid business logic.  
+
+# %%
+# To answer the question : Which channel (ECOM or APP) has the most visits, revenue?
+# Group data by channel and sum the cleaned visits
+visits_by_channel = df_experience.groupby('Channel')['Visits_clean'].sum().reset_index()
+
+colores = ['#0F4C81' if canal == 'APP' else '#39FF14' for canal in visits_by_channel['Channel']]
+# Create the bar chart
+plt.figure(figsize=(6, 4))
+bars = plt.bar(visits_by_channel['Channel'], visits_by_channel['Visits_clean'], color=colores)
+plt.title('Total Visits by Channel')
+plt.xlabel('Channel')
+plt.ylabel('Number of Visits')
+plt.grid(axis='y', linestyle='--', alpha=0.5)
+
+# Increase y-axis limit slightly to make room for labels
+max_height = max([bar.get_height() for bar in bars])
+plt.ylim(0, max_height * 1.15)  # 15% higher than the tallest bar
+
+# Add labels above each bar
+for bar in bars:
+    height = bar.get_height()
+    label = f"{height:,.0f}"  # Format with commas, no decimals
+    plt.text(
+        bar.get_x() + bar.get_width() / 2,
+        height,
+        label,
+        ha='center', va='bottom',
+        fontsize=9, color='black'
+    )
+
+plt.tight_layout()
+plt.show()
+
+# %%
+# Filter only NOT CANCELLED sales
+df_sales_valid = df_sales[df_sales['Status'] == 'NOT CANCELLED']
+#Group by Channel and sum Revenue
+revenue_by_channel = df_sales_valid.groupby('Channel')['Revenue (COP)'].sum().reset_index()
+
+
+# %%
+# Create the bar chart visits by channel
+plt.figure(figsize=(6, 4))
+bars = plt.bar(revenue_by_channel['Channel'], revenue_by_channel['Revenue (COP)'], color= colores)
+plt.title('Total Revenue by Channel (COP)')
+plt.xlabel('Channel')
+plt.ylabel('Revenue (COP)')
+plt.grid(axis='y', linestyle='--', alpha=0.5)
+
+# Calculate the maximum value to fit the y-axis
+max_height = max([bar.get_height() for bar in bars])
+plt.ylim(0, max_height * 1.15)  # Aumenta un 15% el tope del eje y
+
+# Add labels above the bars in millions (e.g. $1.2M)
+for bar in bars:
+    height = bar.get_height()
+    label = f"${height/1_000_000:.1f}M"
+    plt.text(
+        bar.get_x() + bar.get_width() / 2,
+        height,
+        label,
+        ha='center', va='bottom',
+        fontsize=9, color='black'
+    )
+
+plt.tight_layout()
+plt.show()
+
+# %%
+#To answer the question: How many clients prefer to buy online (ECOM) versus in-app (APP)? 
+# Counts clients by sales channel, calculates percentages, and stores in a DataFrame
+clients_by_channel = df_sales_valid['Channel'].value_counts().reset_index() # Gets count per channel and converts to DataFrame
+clients_by_channel.columns = ['Channel', 'Number_of_Clients'] # Renames columns for clarity
+clients_by_channel['Percentage'] = (clients_by_channel['Number_of_Clients'] / clients_by_channel['Number_of_Clients'].sum()) * 100 # Adds percentage column
+
+
+# %%
+# Plot pie chart
+plt.figure(figsize=(6, 6))
+plt.pie(
+    clients_by_channel['Number_of_Clients'],
+    labels=clients_by_channel['Channel'],
+    autopct='%1.1f%%',
+    startangle=90,
+    colors= ['#39FF14','#0F4C81'],  #  Optional custom colors
+    
+)
+plt.title('Customer Distribution by Channel (Valid Sales Only)', fontsize=14)
+plt.axis('equal')  # Keeps the graph as a circle
+plt.tight_layout()
+
+plt.show()
+
+# %%
+valid_sales_ecom = df_sales_valid[df_sales_valid['Channel'] == 'ECOM'].shape[0]
+valid_sales_app = df_sales_valid[df_sales_valid['Channel'] == 'APP'].shape[0]
+
+# Filter cart additions by channel from the 'experience' dataframe
+cart_ecom = df_experience[df_experience['Channel'] == 'ECOM']['Cart_Additions_clean'].sum()
+cart_app = df_experience[df_experience['Channel'] == 'APP']['Cart_Additions_clean'].sum()
+
+# Calculate the conversion rate from the cart for each channel
+Cart_Conversion_Rate_ecom = (valid_sales_ecom / cart_ecom) * 100 if cart_ecom > 0 else 0
+Cart_Conversion_Rate_app = (valid_sales_app / cart_app) * 100 if cart_app > 0 else 0
+
+# %%
+# Create the figure and axes
+fig, ax = plt.subplots(figsize=(6, 3))
+ax.axis("off")  # Oculta los ejes
+
+plt.title('Cart Conversion Rate', fontsize=14)
+
+# Draw cards
+# ECOM
+ax.text(0.25, 0.7, "ECOM", fontsize=16, weight="bold", ha="center")
+ax.text(0.25, 0.4, f"{Cart_Conversion_Rate_ecom}%", fontsize=14, color="#39FF14", weight="bold", ha="center")
+
+
+# APP
+ax.text(0.75, 0.7, "APP", fontsize=16, weight="bold", ha="center")
+ax.text(0.75, 0.4, f"{Cart_Conversion_Rate_app}%", fontsize=14, color="#0F4C81", weight="bold", ha="center")
+
+
+# Draw rectangles to simulate cards
+card_ecom = plt.Rectangle((0.05, 0.05), 0.4, 0.9, edgecolor="gray", facecolor="whitesmoke", linewidth=1.5)
+card_app = plt.Rectangle((0.55, 0.05), 0.4, 0.9, edgecolor="gray", facecolor="whitesmoke", linewidth=1.5)
+
+ax.add_patch(card_ecom)
+ax.add_patch(card_app)
+
+plt.tight_layout()
+plt.show()
+
+# %%
+# To know the best-selling products by ECOM
+# Filter only sales by ECOM channel
+df_ecom_sales = df_sales_valid[df_sales_valid['Channel'] == 'ECOM']
+
+#Count how many times each Article code appears in ECOM sales
+article_sales_counts = (
+    df_ecom_sales['Article']
+    .value_counts()
+    .reset_index()
+    .rename(columns={'index': 'Article', 'Article': 'Article'})
+)
+
+# %%
+# The article dataframe contains multiple article codes for different product groups. I selected the most frequently occurring code per article for analysis
+article_main_group = (
+    df_articles.groupby(['Article', 'Product Group'])
+    .size()
+    .reset_index(name='count')
+    .sort_values(['Article', 'count'], ascending=[True, False])
+    .drop_duplicates(subset='Article', keep='first') # Stick with the most common (one) per Article
+    .drop(columns='count')
+)
+
+# %%
+# Merge with ECOM sales count
+article_ecom_with_group = article_sales_counts.merge(
+    article_main_group,
+    on='Article',
+    how='left'  # keep all the items that were sold through ECOM
+)
+
+# %%
+# Graph percentage of sales of products sold by ECOM
+group_sales = (
+    article_ecom_with_group.groupby('Product Group')['count']
+    .sum()
+    .sort_values(ascending=False)
+)
+
+# Separate Top 5 and group the rest as "Others"
+top_5 = group_sales.head(5)
+others = group_sales[5:].sum()
+group_sales_final = pd.concat([top_5, pd.Series({'Others': others})])
+
+# Graph the pie
+plt.figure(figsize=(8, 6))
+plt.pie(group_sales_final, labels=group_sales_final.index, autopct='%1.1f%%', startangle=140)
+plt.title('Top 5: most popular products among online shoppers (ECOM)(+Others)', fontsize=14)
+plt.axis('equal')
+plt.tight_layout()
+plt.show()
+
+# Ing. Joyce Liseth CAntillo Zuleta
